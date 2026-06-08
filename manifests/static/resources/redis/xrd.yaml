@@ -1,0 +1,35 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: redisinstances.platform.example.com
+spec:
+  scope: Namespaced
+  group: platform.example.com
+  names:
+    kind: RedisInstance
+    plural: redisinstances
+  defaultCompositionRef:
+    name: redisinstances.azure
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - environment
+                - instanceName
+              properties:
+                environment:
+                  type: string
+                  enum: ["integration", "acceptance", "production"]
+                instanceName:
+                  type: string
+                  pattern: '^[a-z][a-z0-9-]{1,61}[a-z0-9]$'
+                  description: |
+                    Azure Cache for Redis name. Lowercase, alphanumeric and
+                    hyphens, 3-63 chars. Used as the resource external-name.

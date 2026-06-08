@@ -1,0 +1,20 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install KCL
+        uses: kcl-lang/setup-kcl@v0.1.0
+
+      - name: Vet (every environment renders and passes its checks)
+        run: make vet
+
+      - name: Check committed output matches source
+        run: make check

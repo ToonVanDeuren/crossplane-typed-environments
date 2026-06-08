@@ -1,0 +1,38 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: postgresdatabases.platform.example.com
+spec:
+  scope: Namespaced
+  group: platform.example.com
+  names:
+    kind: PostgresDatabase
+    plural: postgresdatabases
+  defaultCompositionRef:
+    name: postgresdatabases.azure
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - environment
+                - databaseName
+              properties:
+                environment:
+                  type: string
+                  enum: ["integration", "acceptance", "production"]
+                databaseName:
+                  type: string
+                  pattern: '^[a-z][a-z0-9_]{1,62}$'
+                  description: |
+                    PostgreSQL database name. Lowercase, starts with a letter,
+                    underscores allowed, max 63 characters.
+                    Kept separate from metadata.name because Kubernetes names
+                    forbid underscores; this field carries the full PostgreSQL
+                    namespace via crossplane.io/external-name.

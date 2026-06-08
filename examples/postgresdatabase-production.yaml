@@ -1,0 +1,11 @@
+# Crossplane v2: the composite resource is namespaced and created directly.
+# There is no separate claim. spec.environment selects the EnvironmentConfig
+# and the ClusterProviderConfig that render.k rendered for production.
+apiVersion: platform.example.com/v1alpha1
+kind: PostgresDatabase
+metadata:
+  name: orders
+  namespace: team-checkout
+spec:
+  environment: production
+  databaseName: orders

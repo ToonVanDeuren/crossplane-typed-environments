@@ -1,0 +1,117 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: postgresdatabases.azure
+spec:
+  compositeTypeRef:
+    apiVersion: platform.example.com/v1alpha1
+    kind: PostgresDatabase
+  mode: Pipeline
+  pipeline:
+    # Step 1: look up the shared Flexible Server for this environment.
+    # function-extra-resources places the matching EnvironmentConfig under
+    # context["apiextensions.crossplane.io/extra-resources"]["postgres-env"].
+    - step: fetch-environment-config
+      functionRef:
+        name: function-extra-resources
+      input:
+        apiVersion: extra-resources.fn.crossplane.io/v1beta1
+        kind: Input
+        spec:
+          extraResources:
+            - kind: EnvironmentConfig
+              apiVersion: apiextensions.crossplane.io/v1beta1
+              into: postgres-env
+              type: Selector
+              selector:
+                matchLabels:
+                  - key: scope
+                    type: Value
+                    value: shared
+                  - key: service
+                    type: Value
+                    value: postgres
+                  - key: environment
+                    type: FromCompositeFieldPath
+                    valueFromFieldPath: spec.environment
+
+    # Step 2: create the database on the shared server. Note that this
+    # composition never creates the server itself: it only declares a
+    # database on a server that already exists.
+    - step: render-database
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $params := .observed.composite.resource.spec }}
+            {{- $env := (index $.context "apiextensions.crossplane.io/extra-resources" "postgres-env" 0) }}
+            {{- $namespace := .observed.composite.resource.metadata.namespace }}
+            ---
+            apiVersion: dbforpostgresql.azure.m.upbound.io/v1beta1
+            kind: FlexibleServerDatabase
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: database
+                crossplane.io/external-name: {{ $params.databaseName }}
+            spec:
+              forProvider:
+                charset: {{ $env.data.charset }}
+                collation: {{ $env.data.collation }}
+                serverId: {{ $env.data.serverId }}
+              providerConfigRef:
+                kind: ClusterProviderConfig
+                name: azure-{{ $params.environment }}
+              # Built-in Crossplane field: when the provider observes the
+              # resource and reads any published connection details, it writes
+              # them into the named Secret asynchronously. Useful for values
+              # that only exist after the cloud resource is ready (endpoints,
+              # generated identifiers, connection strings). Commented out
+              # because FlexibleServerDatabase publishes little of value here;
+              # uncomment on resources whose providers populate it.
+              # writeConnectionSecretToRef:
+              #   name: {{ $params.databaseName }}-provider-details
+              #   namespace: {{ $namespace }}
+
+    # Step 3: surface what the application actually needs. The Flexible Server
+    # admin credential lives in a Secret managed outside this composition;
+    # the application gets the host, the database name, and the admin user
+    # name. The Secret is emitted directly: Crossplane v2 composes native
+    # Kubernetes resources alongside managed resources, no provider-kubernetes
+    # wrapper required for the in-cluster case.
+    - step: render-connection-secret
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $params := .observed.composite.resource.spec }}
+            {{- $env := (index $.context "apiextensions.crossplane.io/extra-resources" "postgres-env" 0) }}
+            {{- $namespace := .observed.composite.resource.metadata.namespace }}
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: {{ $params.databaseName }}-credentials
+              namespace: {{ $namespace }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: app-connection-secret
+            type: Opaque
+            stringData:
+              DATABASE_HOST: {{ $env.data.serverFqdn }}
+              DATABASE_NAME: {{ $params.databaseName }}
+              DATABASE_USER: {{ $env.data.adminUser }}
+
+    # Step 4: mark the composite Ready only when every managed resource the
+    # pipeline produced is itself Ready. Without this the composite is marked
+    # Ready the moment the pipeline finishes, before Azure has finished
+    # provisioning anything.
+    - step: ensure-ready
+      functionRef:
+        name: function-auto-ready

@@ -1,0 +1,9 @@
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-family-azure
+spec:
+  # The Azure provider family config. Ships the ClusterProviderConfig CRD
+  # (azure.m.upbound.io) that both service providers depend on and that
+  # render.k's ClusterProviderConfig is applied against.
+  package: xpkg.upbound.io/upbound/provider-family-azure:v1.13.0

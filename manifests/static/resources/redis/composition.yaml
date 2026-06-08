@@ -1,0 +1,96 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: redisinstances.azure
+spec:
+  compositeTypeRef:
+    apiVersion: platform.example.com/v1alpha1
+    kind: RedisInstance
+  mode: Pipeline
+  pipeline:
+    # Step 1: look up the per-environment placement and sizing defaults.
+    # function-extra-resources places the matching EnvironmentConfig under
+    # context["apiextensions.crossplane.io/extra-resources"]["redis-env"].
+    - step: fetch-environment-config
+      functionRef:
+        name: function-extra-resources
+      input:
+        apiVersion: extra-resources.fn.crossplane.io/v1beta1
+        kind: Input
+        spec:
+          extraResources:
+            - kind: EnvironmentConfig
+              apiVersion: apiextensions.crossplane.io/v1beta1
+              into: redis-env
+              type: Selector
+              selector:
+                matchLabels:
+                  - key: scope
+                    type: Value
+                    value: shared
+                  - key: service
+                    type: Value
+                    value: redis
+                  - key: environment
+                    type: FromCompositeFieldPath
+                    valueFromFieldPath: spec.environment
+
+    # Step 2: create the cache, sized and placed from the environment defaults.
+    - step: render-cache
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $params := .observed.composite.resource.spec }}
+            {{- $env := (index $.context "apiextensions.crossplane.io/extra-resources" "redis-env" 0) }}
+            ---
+            apiVersion: cache.azure.m.upbound.io/v1beta1
+            kind: RedisCache
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: cache
+                crossplane.io/external-name: {{ $params.instanceName }}
+            spec:
+              forProvider:
+                resourceGroupName: {{ $env.data.resourceGroupName }}
+                location: {{ $env.data.location }}
+                capacity: {{ $env.data.capacity }}
+                family: {{ $env.data.family }}
+                skuName: {{ $env.data.skuName }}
+              providerConfigRef:
+                kind: ClusterProviderConfig
+                name: azure-{{ $params.environment }}
+
+    # Step 3: surface what the application needs to connect.
+    - step: render-connection-secret
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $params := .observed.composite.resource.spec }}
+            {{- $namespace := .observed.composite.resource.metadata.namespace }}
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: {{ $params.instanceName }}-redis
+              namespace: {{ $namespace }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: redis-connection-secret
+            type: Opaque
+            stringData:
+              REDIS_HOST: {{ $params.instanceName }}.redis.cache.windows.net
+              REDIS_PORT: "6380"
+
+    # Step 4: mark the composite Ready only when the cache is itself Ready.
+    - step: ensure-ready
+      functionRef:
+        name: function-auto-ready
