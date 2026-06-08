@@ -8,10 +8,15 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
 
       - name: Install KCL
-        uses: kcl-lang/setup-kcl@v0.1.0
+        run: go install kcl-lang.io/cli/cmd/kcl@latest
 
       - name: Vet (every environment renders and passes its checks)
         run: make vet
