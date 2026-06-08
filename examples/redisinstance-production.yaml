@@ -1,6 +1,6 @@
 # Crossplane v2: the composite resource is namespaced and created directly.
-# spec.environment selects the EnvironmentConfig (workload=redis) and the
-# ClusterProviderConfig that render.k rendered for production.
+# spec.environment selects the EnvironmentConfig (service=redis) and the
+# ClusterProviderConfig that the renderers produced for production.
 apiVersion: platform.example.com/v1alpha1
 kind: RedisInstance
 metadata:
